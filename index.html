@@ -12,11 +12,6 @@
         href="https://fonts.googleapis.com/css2?family=Indie+Flower&family=Caveat:wght@700&family=Playfair+Display:wght@700;800&family=Cinzel:wght@600;700&family=Montserrat:wght@600;700&family=Dancing+Script:wght@700&family=Amatic+SC:wght@700&family=Cormorant+Garamond:wght@700&family=Pacifico&display=swap"
         rel="stylesheet">
 
-    <!-- AI 模型库 -->
-    <script src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js" defer></script>
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.10.0/dist/tf.min.js" defer></script>
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.2" defer></script>
-
     <style>
         :root {
             --border-color: #2c2c2c;
@@ -41,7 +36,6 @@
             overflow-x: hidden;
         }
 
-        /* 背景波点画布 */
         #dotsCanvas {
             position: fixed;
             top: 0;
@@ -82,7 +76,6 @@
             user-select: none;
             flex-shrink: 0;
         }
-
         .upload-box:hover {
             border-color: #111;
             box-shadow: 0 12px 32px rgba(0, 0, 0, 0.07);
@@ -97,7 +90,6 @@
             transition: all 0.35s ease;
             font-family: 'Arial', sans-serif;
         }
-
         .upload-box.has-photo .big-plus,
         .upload-box.hidden {
             opacity: 0;
@@ -338,559 +330,499 @@
     <canvas id="synthesisCanvas" style="display:none;"></canvas>
 
     <script>
-        // ==================== 全局等待 AI 模型加载 ====================
-        let faceApiReady = false;
-        let cocoSsdModel = null;
+        (function() {
+            // ==================== 背景波点 ====================
+            const dotsCanvas = document.getElementById('dotsCanvas');
+            const dotsCtx = dotsCanvas.getContext('2d');
 
-        // 初始化 face-api
-        async function loadFaceApi() {
-            try {
-                await faceapi.nets.tinyFaceDetector.loadFromUri('https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/weights');
-                faceApiReady = true;
-                console.log('✅ 人脸检测模型就绪');
-            } catch (e) {
-                console.warn('⚠️ 人脸检测模型加载失败，将跳过人脸识别', e);
+            function resizeDotsCanvas() {
+                dotsCanvas.width = window.innerWidth;
+                dotsCanvas.height = window.innerHeight;
+                drawSmallDots();
             }
-        }
 
-        // 初始化 COCO-SSD
-        async function loadCocoSsd() {
-            try {
-                cocoSsdModel = await cocoSsd.load();
-                console.log('✅ 动物检测模型就绪');
-            } catch (e) {
-                console.warn('⚠️ 动物检测模型加载失败', e);
-            }
-        }
-
-        // 页面加载时启动模型下载（后台进行）
-        window.addEventListener('load', () => {
-            loadFaceApi();
-            loadCocoSsd();
-        });
-
-        // ==================== 背景波点 ====================
-        const dotsCanvas = document.getElementById('dotsCanvas');
-        const dotsCtx = dotsCanvas.getContext('2d');
-
-        function resizeDotsCanvas() {
-            dotsCanvas.width = window.innerWidth;
-            dotsCanvas.height = window.innerHeight;
-            drawSmallDots();
-        }
-
-        function drawSmallDots() {
-            const w = dotsCanvas.width, h = dotsCanvas.height;
-            dotsCtx.clearRect(0, 0, w, h);
-            const dotRadius = 8, dotCount = 120, gap = 6;
-            const placed = [];
-            for (let i = 0; i < dotCount; i++) {
-                for (let attempt = 0; attempt < 800; attempt++) {
-                    const x = dotRadius + gap + Math.random() * (w - 2 * dotRadius - 2 * gap);
-                    const y = dotRadius + gap + Math.random() * (h - 2 * dotRadius - 2 * gap);
-                    let overlap = false;
-                    for (const p of placed) {
-                        if (Math.hypot(p.x - x, p.y - y) < dotRadius * 2 + gap) {
-                            overlap = true;
+            function drawSmallDots() {
+                const w = dotsCanvas.width, h = dotsCanvas.height;
+                dotsCtx.clearRect(0, 0, w, h);
+                const dotRadius = 8, dotCount = 120, gap = 6;
+                const placed = [];
+                for (let i = 0; i < dotCount; i++) {
+                    for (let attempt = 0; attempt < 800; attempt++) {
+                        const x = dotRadius + gap + Math.random() * (w - 2 * dotRadius - 2 * gap);
+                        const y = dotRadius + gap + Math.random() * (h - 2 * dotRadius - 2 * gap);
+                        let overlap = false;
+                        for (const p of placed) {
+                            if (Math.hypot(p.x - x, p.y - y) < dotRadius * 2 + gap) {
+                                overlap = true;
+                                break;
+                            }
+                        }
+                        if (!overlap) {
+                            placed.push({ x, y });
+                            const hue = Math.floor(Math.random() * 360);
+                            dotsCtx.fillStyle = `hsl(${hue}, ${55 + Math.random()*40}%, ${50 + Math.random()*25}%)`;
+                            dotsCtx.beginPath();
+                            dotsCtx.arc(x, y, dotRadius, 0, Math.PI * 2);
+                            dotsCtx.fill();
                             break;
                         }
                     }
-                    if (!overlap) {
-                        placed.push({ x, y });
-                        const hue = Math.floor(Math.random() * 360);
-                        dotsCtx.fillStyle = `hsl(${hue}, ${55 + Math.random()*40}%, ${50 + Math.random()*25}%)`;
-                        dotsCtx.beginPath();
-                        dotsCtx.arc(x, y, dotRadius, 0, Math.PI * 2);
-                        dotsCtx.fill();
-                        break;
-                    }
                 }
             }
-        }
 
-        window.addEventListener('resize', resizeDotsCanvas);
-        resizeDotsCanvas();
+            window.addEventListener('resize', resizeDotsCanvas);
+            resizeDotsCanvas();
 
-        // ==================== DOM 引用 ====================
-        const uploadBox = document.getElementById('uploadBox');
-        const photoInput = document.getElementById('photoInput');
-        const bigPlus = document.getElementById('bigPlus');
-        const photoPreview = document.getElementById('photoPreview');
-        const startBtnRow = document.getElementById('startBtnRow');
-        const btnStart = document.getElementById('btnStart');
-        const resultArea = document.getElementById('resultArea');
-        const resultImage = document.getElementById('resultImage');
-        const btnRetry = document.getElementById('btnRetry');
-        const btnSave = document.getElementById('btnSave');
-        const synthCanvas = document.getElementById('synthesisCanvas');
-        const synthCtx = synthCanvas.getContext('2d');
-        const loadingOverlay = document.getElementById('loadingOverlay');
-        const progressFill = document.getElementById('progressFill');
-        const progressText = document.getElementById('progressText');
-        const cowImg = document.getElementById('cowImg');
-        const cowFallback = document.getElementById('cowFallback');
+            // ==================== DOM 引用 ====================
+            const uploadBox = document.getElementById('uploadBox');
+            const photoInput = document.getElementById('photoInput');
+            const bigPlus = document.getElementById('bigPlus');
+            const photoPreview = document.getElementById('photoPreview');
+            const startBtnRow = document.getElementById('startBtnRow');
+            const btnStart = document.getElementById('btnStart');
+            const resultArea = document.getElementById('resultArea');
+            const resultImage = document.getElementById('resultImage');
+            const btnRetry = document.getElementById('btnRetry');
+            const btnSave = document.getElementById('btnSave');
+            const synthCanvas = document.getElementById('synthesisCanvas');
+            const synthCtx = synthCanvas.getContext('2d');
+            const loadingOverlay = document.getElementById('loadingOverlay');
+            const progressFill = document.getElementById('progressFill');
+            const progressText = document.getElementById('progressText');
+            const cowImg = document.getElementById('cowImg');
+            const cowFallback = document.getElementById('cowFallback');
 
-        let userPhotoDataURL = null;
-        let synthesizedDataURL = null;
-        let isSynthesizing = false;
+            let userPhotoDataURL = null;
+            let synthesizedDataURL = null;
+            let isSynthesizing = false;
 
-        const backgroundImages = ['./bg1.png', './bg2.png', './bg3.png', './bg4.png'];
+            // 背景图库（透明背景PNG）
+            const TOTAL_BG = 7; 
+            const backgroundImages = Array.from({ length: TOTAL_BG }, (_, i) => `./bg${i + 1}.png`);
 
-        const verbBank = [
-            'DREAM', 'CREATE', 'WANDER', 'CHILL', 'GLOW',
-            'VIBE', 'EXPLORE', 'SHINE', 'SMILE', 'BLOOM',
-            'BREATHE', 'SPARK', 'DAZZLE', 'MUSE', 'FLOW',
-            'RISE', 'DRIFT', 'LUMIN', 'CHARM', 'GRACE'
-        ];
+            const verbBank = [
+                'DREAM', 'CREATE', 'WANDER', 'CHILL', 'GLOW',
+                'VIBE', 'EXPLORE', 'SHINE', 'SMILE', 'BLOOM',
+                'BREATHE', 'SPARK', 'DAZZLE', 'MUSE', 'FLOW',
+                'RISE', 'DRIFT', 'LUMIN', 'CHARM', 'GRACE'
+            ];
 
-        const fontFamilies = [
-            "'Playfair Display', serif", "'Caveat', cursive", "'Pacifico', cursive",
-            "'Cinzel', serif", "'Montserrat', sans-serif", "'Dancing Script', cursive",
-            "'Amatic SC', cursive", "'Cormorant Garamond', serif"
-        ];
+            const fontFamilies = [
+                "'Playfair Display', serif", "'Caveat', cursive", "'Pacifico', cursive",
+                "'Cinzel', serif", "'Montserrat', sans-serif", "'Dancing Script', cursive",
+                "'Amatic SC', cursive", "'Cormorant Garamond', serif"
+            ];
 
-        const morandiColors = [
-            '#c4a4a4', '#d4c8b5', '#a8b5a2', '#9aaeb8', '#b8a8b8',
-            '#a3b5a8', '#c4b0a0', '#a0aec4', '#bfb0a8', '#b5c0c4',
-            '#c8bcc0', '#aab8b0'
-        ];
+            const morandiColors = [
+                '#c4a4a4', '#d4c8b5', '#a8b5a2', '#9aaeb8', '#b8a8b8',
+                '#a3b5a8', '#c4b0a0', '#a0aec4', '#bfb0a8', '#b5c0c4',
+                '#c8bcc0', '#aab8b0'
+            ];
 
-        window.handleCowError = () => {
-            cowImg.style.display = 'none';
-            cowFallback.style.display = 'block';
-        };
-        window.handleCowLoad = () => {
-            cowImg.style.display = 'block';
-            cowFallback.style.display = 'none';
-        };
+            window.handleCowError = () => {
+                cowImg.style.display = 'none';
+                cowFallback.style.display = 'block';
+            };
+            window.handleCowLoad = () => {
+                cowImg.style.display = 'block';
+                cowFallback.style.display = 'none';
+            };
 
-        const randomInt = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
-        const randomPick = arr => arr[Math.floor(Math.random() * arr.length)];
-        const randomFloat = (min, max) => Math.random() * (max - min) + min;
+            const randomInt = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
+            const randomPick = arr => arr[Math.floor(Math.random() * arr.length)];
+            const randomFloat = (min, max) => Math.random() * (max - min) + min;
 
-        function loadImage(src) {
-            return new Promise((resolve, reject) => {
-                const img = new Image();
-                img.onload = () => resolve(img);
-                img.onerror = () => reject(new Error(`图片加载失败: ${src}`));
-                img.src = src;
-            });
-        }
+            function loadImage(src) {
+                return new Promise((resolve, reject) => {
+                    const img = new Image();
+                    img.onload = () => resolve(img);
+                    img.onerror = () => reject(new Error(`图片加载失败: ${src}`));
+                    img.src = src;
+                });
+            }
 
-        function drawFallbackGradient(ctx, w, h) {
-            const grad = ctx.createLinearGradient(0, 0, w, h);
-            grad.addColorStop(0, '#f5f0ea');
-            grad.addColorStop(1, '#e8e2da');
-            ctx.fillStyle = grad;
-            ctx.fillRect(0, 0, w, h);
-        }
+            // 检测背景图中的颜色点（品红 #FF00FF 或 绿色 #00FF00）
+            async function findColorPoint(img, color, tolerance = 80) {
+                const tempCanvas = document.createElement('canvas');
+                tempCanvas.width = img.naturalWidth;
+                tempCanvas.height = img.naturalHeight;
+                const tempCtx = tempCanvas.getContext('2d');
+                tempCtx.drawImage(img, 0, 0);
+                const imageData = tempCtx.getImageData(0, 0, tempCanvas.width, tempCanvas.height);
+                const data = imageData.data;
+                let sumX = 0, sumY = 0, count = 0;
 
-        // ==================== 🧠 智能避让核心 ====================
-        async function detectImportantRegions(bgImage, canvasW, canvasH) {
-            const regions = [];
+                for (let i = 0; i < data.length; i += 4) {
+                    const r = data[i];
+                    const g = data[i + 1];
+                    const b = data[i + 2];
+                    if (Math.abs(r - color.r) < tolerance &&
+                        Math.abs(g - color.g) < tolerance &&
+                        Math.abs(b - color.b) < tolerance) {
+                        const x = (i / 4) % tempCanvas.width;
+                        const y = Math.floor((i / 4) / tempCanvas.width);
+                        sumX += x;
+                        sumY += y;
+                        count++;
+                    }
+                }
+                if (count === 0) return null;
+                return { x: sumX / count, y: sumY / count };
+            }
 
-            // 1. 人脸检测
-            if (faceApiReady) {
+            // 绘制圆角照片（直接使用阴影，无白色背景）
+            function drawRoundedPhoto(ctx, img, x, y, w, h, cornerRadius, shadowBlur, shadowOffsetY) {
+                ctx.save();
+                ctx.shadowColor = 'rgba(0,0,0,0.35)';
+                ctx.shadowBlur = shadowBlur;
+                ctx.shadowOffsetY = shadowOffsetY;
+
+                // 圆角裁剪路径
+                ctx.beginPath();
+                ctx.moveTo(x + cornerRadius, y);
+                ctx.lineTo(x + w - cornerRadius, y);
+                ctx.quadraticCurveTo(x + w, y, x + w, y + cornerRadius);
+                ctx.lineTo(x + w, y + h - cornerRadius);
+                ctx.quadraticCurveTo(x + w, y + h, x + w - cornerRadius, y + h);
+                ctx.lineTo(x + cornerRadius, y + h);
+                ctx.quadraticCurveTo(x, y + h, x, y + h - cornerRadius);
+                ctx.lineTo(x, y + cornerRadius);
+                ctx.quadraticCurveTo(x, y, x + cornerRadius, y);
+                ctx.closePath();
+                ctx.clip();
+
+                ctx.drawImage(img, x, y, w, h);
+                ctx.restore();
+            }
+
+            // ==================== 核心合成 ====================
+            async function performSynthesis() {
+                // 1. 加载随机背景图
+                const bgSrc = randomPick(backgroundImages);
+                let bgImage = null;
                 try {
-                    const detections = await faceapi.detectAllFaces(bgImage, new faceapi.TinyFaceDetectorOptions());
-                    for (const d of detections) {
-                        const box = d.box;
-                        // 稍微扩大一点区域，避免贴脸
-                        const margin = 15;
-                        regions.push({
-                            x: Math.max(0, box.x - margin),
-                            y: Math.max(0, box.y - margin),
-                            w: Math.min(canvasW, box.width + margin * 2),
-                            h: Math.min(canvasH, box.height + margin * 2)
-                        });
-                    }
+                    bgImage = await loadImage(bgSrc);
                 } catch (e) {
-                    console.warn('人脸检测出错:', e);
+                    console.warn('背景图加载失败，将使用空白背景', e);
                 }
-            }
 
-            // 2. 动物检测（COCO-SSD）
-            if (cocoSsdModel) {
-                try {
-                    const predictions = await cocoSsdModel.detect(bgImage);
-                    const animalClasses = ['cat', 'dog', 'bird', 'horse', 'sheep', 'cow', 'elephant', 'bear', 'zebra', 'giraffe'];
-                    for (const p of predictions) {
-                        if (animalClasses.includes(p.class)) {
-                            const [x, y, width, height] = p.bbox;
-                            regions.push({ x, y, w: width, h: height });
-                        }
+                // 2. 确定画布尺寸（最大宽度1200px，等比缩放，保持背景图原始比例）
+                const MAX_WIDTH = 1200;
+                let canvasW, canvasH;
+                if (bgImage) {
+                    const bw = bgImage.naturalWidth;
+                    const bh = bgImage.naturalHeight;
+                    if (bw > MAX_WIDTH) {
+                        const scale = MAX_WIDTH / bw;
+                        canvasW = MAX_WIDTH;
+                        canvasH = Math.round(bh * scale);
+                    } else {
+                        canvasW = bw;
+                        canvasH = bh;
                     }
-                } catch (e) {
-                    console.warn('动物检测出错:', e);
-                }
-            }
-
-            return regions;
-        }
-
-        function doesOverlap(rect, regions) {
-            for (const r of regions) {
-                if (rect.x < r.x + r.w && rect.x + rect.w > r.x &&
-                    rect.y < r.y + r.h && rect.y + rect.h > r.y) {
-                    return true;
-                }
-            }
-            return false;
-        }
-
-        function findBestPosition(canvasW, canvasH, photoW, photoH, regions) {
-            const candidates = [];
-            const step = 20;
-            // 中心附近优先采样
-            for (let y = 0; y < canvasH - photoH; y += step) {
-                for (let x = 0; x < canvasW - photoW; x += step) {
-                    const rect = { x, y, w: photoW, h: photoH };
-                    const overlaps = doesOverlap(rect, regions);
-                    const centerDist = Math.hypot((x + photoW/2) - canvasW/2, (y + photoH/2) - canvasH/2);
-                    candidates.push({ rect, overlaps, centerDist });
-                }
-            }
-            if (candidates.length === 0) return { x: (canvasW - photoW) / 2, y: (canvasH - photoH) / 2 };
-
-            // 排序：优先不重叠，然后最靠近中心
-            candidates.sort((a, b) => {
-                if (a.overlaps !== b.overlaps) return a.overlaps ? 1 : -1;
-                return a.centerDist - b.centerDist;
-            });
-
-            return candidates[0].rect;
-        }
-
-        // ==================== 合成 ====================
-        async function performSynthesis() {
-            const bgSrc = randomPick(backgroundImages);
-            let bgImage = null;
-            try { bgImage = await loadImage(bgSrc); } catch (e) { console.warn(e); }
-
-            const MAX_WIDTH = 1200;
-            let canvasW, canvasH;
-            if (bgImage) {
-                const bw = bgImage.naturalWidth, bh = bgImage.naturalHeight;
-                if (bw > MAX_WIDTH) {
-                    const scale = MAX_WIDTH / bw;
-                    canvasW = MAX_WIDTH;
-                    canvasH = Math.round(bh * scale);
                 } else {
-                    canvasW = bw;
-                    canvasH = bh;
+                    canvasW = 800;
+                    canvasH = 800;
                 }
-            } else {
-                canvasW = 800; canvasH = 800;
-            }
 
-            synthCanvas.width = canvasW;
-            synthCanvas.height = canvasH;
-            synthCtx.clearRect(0, 0, canvasW, canvasH);
+                synthCanvas.width = canvasW;
+                synthCanvas.height = canvasH;
+                // 清空为透明背景
+                synthCtx.clearRect(0, 0, canvasW, canvasH);
 
-            // 背景 cover
-            if (bgImage) {
-                const imgW = bgImage.naturalWidth, imgH = bgImage.naturalHeight;
-                const canvasRatio = canvasW / canvasH, imgRatio = imgW / imgH;
-                let drawW, drawH, offsetX, offsetY;
-                if (imgRatio > canvasRatio) {
-                    drawH = canvasH; drawW = imgW * (canvasH / imgH);
-                    offsetX = (canvasW - drawW) / 2; offsetY = 0;
-                } else {
-                    drawW = canvasW; drawH = imgH * (canvasW / imgW);
-                    offsetX = 0; offsetY = (canvasH - drawH) / 2;
+                // 背景图缩放比例
+                const bgScale = bgImage ? canvasW / bgImage.naturalWidth : 1;
+
+                // 3. 查找红点和绿点（在原始背景图上）
+                let redPoint = null;
+                let greenPoint = null;
+                if (bgImage) {
+                    const [rp, gp] = await Promise.all([
+                        findColorPoint(bgImage, { r: 255, g: 0, b: 255 }, 70),
+                        findColorPoint(bgImage, { r: 0, g: 255, b: 0 }, 70)
+                    ]);
+                    redPoint = rp;
+                    greenPoint = gp;
                 }
-                synthCtx.drawImage(bgImage, offsetX, offsetY, drawW, drawH);
-            } else {
-                drawFallbackGradient(synthCtx, canvasW, canvasH);
-            }
 
-            // 用户照片（智能避让）
-            if (userPhotoDataURL) {
+                // 4. 用户照片尺寸常量
+                const shortSide = Math.min(canvasW, canvasH);
+                const RED_PHOTO_SIZE_RATIO = 0.3; // 红点照片占短边30%
+                const GREEN_PHOTO_SIZE_RATIO = 0.2; // 绿点照片占短边20%
+                const FALLBACK_RED_RATIO = 0.25;    // 无红点时回退尺寸
+                const FALLBACK_GREEN_RATIO = 0.15;  // 无绿点时回退尺寸
+
+                // 加载用户照片
                 let userImg = null;
-                try { userImg = await loadImage(userPhotoDataURL); } catch (e) { console.warn(e); }
+                if (userPhotoDataURL) {
+                    try {
+                        userImg = await loadImage(userPhotoDataURL);
+                    } catch (e) {
+                        console.warn('用户照片加载失败', e);
+                    }
+                }
 
                 if (userImg) {
-                    const shortSide = Math.min(canvasW, canvasH);
-                    const targetShort = shortSide * 0.3; // 照片大小
-                    const pw = userImg.naturalWidth, ph = userImg.naturalHeight;
-                    const userShort = Math.min(pw, ph);
-                    const scale = targetShort / userShort;
-                    const dw = pw * scale, dh = ph * scale;
+                    const pw = userImg.naturalWidth;
+                    const ph = userImg.naturalHeight;
 
-                    // 🔍 获取需要避开的区域（超时保护 4 秒）
-                    let regions = [];
-                    try {
-                        regions = await Promise.race([
-                            detectImportantRegions(bgImage, canvasW, canvasH),
-                            new Promise(res => setTimeout(() => res([]), 4000))
-                        ]);
-                    } catch (e) {
-                        console.warn('智能检测失败，使用默认居中');
+                    // ---- 绿点照片（下层） ----
+                    if (greenPoint) {
+                        const greenSize = shortSide * GREEN_PHOTO_SIZE_RATIO;
+                        const scale = greenSize / Math.min(pw, ph);
+                        const dw = pw * scale;
+                        const dh = ph * scale;
+                        const gx = greenPoint.x * bgScale - dw / 2;
+                        const gy = greenPoint.y * bgScale - dh / 2;
+                        drawRoundedPhoto(synthCtx, userImg, gx, gy, dw, dh, 12,
+                            Math.round(shortSide * 0.03), Math.round(shortSide * 0.015));
+                    } else {
+                        // 无绿点回退：缩小并居中放置在下层
+                        const fallSize = shortSide * FALLBACK_GREEN_RATIO;
+                        const scale = fallSize / Math.min(pw, ph);
+                        const dw = pw * scale;
+                        const dh = ph * scale;
+                        const gx = (canvasW - dw) / 2;
+                        const gy = (canvasH - dh) / 2;
+                        drawRoundedPhoto(synthCtx, userImg, gx, gy, dw, dh, 12,
+                            Math.round(shortSide * 0.02), Math.round(shortSide * 0.01));
                     }
 
-                    // 计算最佳位置
-                    const bestPos = findBestPosition(canvasW, canvasH, dw, dh, regions);
-                    const posX = bestPos.x;
-                    const posY = bestPos.y;
-                    const cornerR = Math.min(14, dw * 0.08);
+                    // ---- 绘制背景图（中层） ----
+                    if (bgImage) {
+                        synthCtx.drawImage(bgImage, 0, 0, canvasW, canvasH);
+                    }
 
-                    // 阴影
-                    synthCtx.save();
-                    synthCtx.shadowColor = 'rgba(0,0,0,0.3)';
-                    synthCtx.shadowBlur = Math.round(shortSide * 0.04);
-                    synthCtx.shadowOffsetY = Math.round(shortSide * 0.02);
-                    synthCtx.fillStyle = '#fff';
-                    synthCtx.beginPath();
-                    synthCtx.moveTo(posX + cornerR, posY);
-                    synthCtx.lineTo(posX + dw - cornerR, posY);
-                    synthCtx.quadraticCurveTo(posX + dw, posY, posX + dw, posY + cornerR);
-                    synthCtx.lineTo(posX + dw, posY + dh - cornerR);
-                    synthCtx.quadraticCurveTo(posX + dw, posY + dh, posX + dw - cornerR, posY + dh);
-                    synthCtx.lineTo(posX + cornerR, posY + dh);
-                    synthCtx.quadraticCurveTo(posX, posY + dh, posX, posY + dh - cornerR);
-                    synthCtx.lineTo(posX, posY + cornerR);
-                    synthCtx.quadraticCurveTo(posX, posY, posX + cornerR, posY);
-                    synthCtx.closePath();
-                    synthCtx.fill();
-                    synthCtx.restore();
+                    // ---- 红点照片（上层） ----
+                    if (redPoint) {
+                        const redSize = shortSide * RED_PHOTO_SIZE_RATIO;
+                        const scale = redSize / Math.min(pw, ph);
+                        const dw = pw * scale;
+                        const dh = ph * scale;
+                        const rx = redPoint.x * bgScale - dw / 2;
+                        const ry = redPoint.y * bgScale - dh / 2;
+                        drawRoundedPhoto(synthCtx, userImg, rx, ry, dw, dh, 16,
+                            Math.round(shortSide * 0.04), Math.round(shortSide * 0.02));
+                    } else {
+                        // 无红点回退：缩小并居中放在上层
+                        const fallSize = shortSide * FALLBACK_RED_RATIO;
+                        const scale = fallSize / Math.min(pw, ph);
+                        const dw = pw * scale;
+                        const dh = ph * scale;
+                        const rx = (canvasW - dw) / 2;
+                        const ry = (canvasH - dh) / 2;
+                        drawRoundedPhoto(synthCtx, userImg, rx, ry, dw, dh, 16,
+                            Math.round(shortSide * 0.04), Math.round(shortSide * 0.02));
+                    }
+                } else {
+                    // 没有用户照片，只画背景图
+                    if (bgImage) {
+                        synthCtx.drawImage(bgImage, 0, 0, canvasW, canvasH);
+                    }
+                }
 
-                    // 照片裁剪
-                    synthCtx.save();
-                    synthCtx.beginPath();
-                    synthCtx.moveTo(posX + cornerR, posY);
-                    synthCtx.lineTo(posX + dw - cornerR, posY);
-                    synthCtx.quadraticCurveTo(posX + dw, posY, posX + dw, posY + cornerR);
-                    synthCtx.lineTo(posX + dw, posY + dh - cornerR);
-                    synthCtx.quadraticCurveTo(posX + dw, posY + dh, posX + dw - cornerR, posY + dh);
-                    synthCtx.lineTo(posX + cornerR, posY + dh);
-                    synthCtx.quadraticCurveTo(posX, posY + dh, posX, posY + dh - cornerR);
-                    synthCtx.lineTo(posX, posY + cornerR);
-                    synthCtx.quadraticCurveTo(posX, posY, posX + cornerR, posY);
-                    synthCtx.closePath();
-                    synthCtx.clip();
-                    synthCtx.drawImage(userImg, posX, posY, dw, dh);
-                    synthCtx.restore();
+                // 5. 文字叠加（随机动词 + 装饰）
+                await document.fonts.ready;
+                const verb = randomPick(verbBank);
+                const letters = verb.split('');
+                const baseFontSize = Math.round(Math.min(canvasW, canvasH) * 0.07);
+                const letterStyles = letters.map(() => ({
+                    fontFamily: randomPick(fontFamilies),
+                    fontSize: randomInt(Math.round(baseFontSize * 0.7), Math.round(baseFontSize * 1.4)),
+                    rotation: randomFloat(-12, 12),
+                    color: randomPick(morandiColors),
+                    offsetY: randomFloat(-baseFontSize * 0.15, baseFontSize * 0.15),
+                }));
 
-                    // 白边框
+                let totalWidth = 0;
+                const widths = [];
+                for (let i = 0; i < letters.length; i++) {
                     synthCtx.save();
-                    synthCtx.strokeStyle = 'rgba(255,255,255,0.7)';
-                    synthCtx.lineWidth = Math.max(2, Math.round(shortSide * 0.005));
-                    synthCtx.beginPath();
-                    synthCtx.moveTo(posX + cornerR, posY);
-                    synthCtx.lineTo(posX + dw - cornerR, posY);
-                    synthCtx.quadraticCurveTo(posX + dw, posY, posX + dw, posY + cornerR);
-                    synthCtx.lineTo(posX + dw, posY + dh - cornerR);
-                    synthCtx.quadraticCurveTo(posX + dw, posY + dh, posX + dw - cornerR, posY + dh);
-                    synthCtx.lineTo(posX + cornerR, posY + dh);
-                    synthCtx.quadraticCurveTo(posX, posY + dh, posX, posY + dh - cornerR);
-                    synthCtx.lineTo(posX, posY + cornerR);
-                    synthCtx.quadraticCurveTo(posX, posY, posX + cornerR, posY);
-                    synthCtx.closePath();
-                    synthCtx.stroke();
+                    synthCtx.font = `bold ${letterStyles[i].fontSize}px ${letterStyles[i].fontFamily}`;
+                    const m = synthCtx.measureText(letters[i]);
+                    widths.push(m.width);
+                    totalWidth += m.width;
                     synthCtx.restore();
                 }
-            }
+                const spacing = randomFloat(baseFontSize * 0.08, baseFontSize * 0.25);
+                totalWidth += spacing * (letters.length - 1);
 
-            // 文字叠加（保持不变）
-            await document.fonts.ready;
-            const verb = randomPick(verbBank);
-            const letters = verb.split('');
-            const baseFontSize = Math.round(Math.min(canvasW, canvasH) * 0.07);
-            const letterStyles = letters.map(() => ({
-                fontFamily: randomPick(fontFamilies),
-                fontSize: randomInt(Math.round(baseFontSize * 0.7), Math.round(baseFontSize * 1.4)),
-                rotation: randomFloat(-12, 12),
-                color: randomPick(morandiColors),
-                offsetY: randomFloat(-baseFontSize * 0.15, baseFontSize * 0.15),
-            }));
+                const textY = randomInt(Math.round(canvasH * 0.08), Math.round(canvasH * 0.18));
+                const textStartX = (canvasW - totalWidth) / 2;
 
-            let totalWidth = 0;
-            const widths = [];
-            for (let i = 0; i < letters.length; i++) {
-                synthCtx.save();
-                synthCtx.font = `bold ${letterStyles[i].fontSize}px ${letterStyles[i].fontFamily}`;
-                const m = synthCtx.measureText(letters[i]);
-                widths.push(m.width);
-                totalWidth += m.width;
-                synthCtx.restore();
-            }
-            const spacing = randomFloat(baseFontSize * 0.08, baseFontSize * 0.25);
-            totalWidth += spacing * (letters.length - 1);
+                let cursorX = textStartX;
+                for (let i = 0; i < letters.length; i++) {
+                    const style = letterStyles[i];
+                    const w = widths[i];
+                    const cx = cursorX + w / 2;
+                    const cy = textY + style.offsetY;
 
-            const textY = randomInt(Math.round(canvasH * 0.08), Math.round(canvasH * 0.18));
-            const textStartX = (canvasW - totalWidth) / 2;
-
-            let cursorX = textStartX;
-            for (let i = 0; i < letters.length; i++) {
-                const style = letterStyles[i];
-                const w = widths[i];
-                const cx = cursorX + w / 2;
-                const cy = textY + style.offsetY;
-
-                synthCtx.save();
-                synthCtx.translate(cx, cy);
-                synthCtx.rotate((style.rotation * Math.PI) / 180);
-                synthCtx.fillStyle = style.color;
-                synthCtx.font = `bold ${style.fontSize}px ${style.fontFamily}`;
-                synthCtx.textAlign = 'center';
-                synthCtx.textBaseline = 'alphabetic';
-                synthCtx.strokeStyle = 'rgba(255,255,255,0.5)';
-                synthCtx.lineWidth = Math.max(1.5, baseFontSize * 0.04);
-                synthCtx.strokeText(letters[i], 0, 0);
-                synthCtx.fillText(letters[i], 0, 0);
-                synthCtx.restore();
-                cursorX += w + spacing;
-            }
-
-            const extras = ['✦', '·', '~', '○', '✧', '◌'];
-            for (let i = 0; i < randomInt(3, 7); i++) {
-                synthCtx.save();
-                synthCtx.fillStyle = randomPick(morandiColors);
-                synthCtx.font = `${randomInt(Math.round(baseFontSize*0.25), Math.round(baseFontSize*0.5))}px serif`;
-                synthCtx.textAlign = 'center';
-                synthCtx.textBaseline = 'middle';
-                synthCtx.globalAlpha = 0.45;
-                synthCtx.fillText(randomPick(extras), randomFloat(canvasW*0.05, canvasW*0.95), randomFloat(canvasH*0.05, canvasH*0.95));
-                synthCtx.restore();
-            }
-
-            synthesizedDataURL = synthCanvas.toDataURL('image/png');
-            return synthesizedDataURL;
-        }
-
-        // ==================== 进度条与 UI ====================
-        function animateProgress(duration = 2000) {
-            return new Promise(resolve => {
-                const start = performance.now();
-                progressFill.style.width = '0%';
-                progressText.textContent = '0%';
-                function update() {
-                    const elapsed = performance.now() - start;
-                    const frac = Math.min(elapsed / duration, 1);
-                    const percent = Math.round((1 - Math.pow(1 - frac, 3)) * 100);
-                    progressFill.style.width = percent + '%';
-                    progressText.textContent = percent + '%';
-                    if (frac < 1) requestAnimationFrame(update);
-                    else resolve();
+                    synthCtx.save();
+                    synthCtx.translate(cx, cy);
+                    synthCtx.rotate((style.rotation * Math.PI) / 180);
+                    synthCtx.fillStyle = style.color;
+                    synthCtx.font = `bold ${style.fontSize}px ${style.fontFamily}`;
+                    synthCtx.textAlign = 'center';
+                    synthCtx.textBaseline = 'alphabetic';
+                    synthCtx.strokeStyle = 'rgba(255,255,255,0.6)';
+                    synthCtx.lineWidth = Math.max(1.5, baseFontSize * 0.04);
+                    synthCtx.lineJoin = 'round';
+                    synthCtx.strokeText(letters[i], 0, 0);
+                    synthCtx.fillText(letters[i], 0, 0);
+                    synthCtx.restore();
+                    cursorX += w + spacing;
                 }
-                requestAnimationFrame(update);
-            });
-        }
 
-        function resetToInitial() {
-            userPhotoDataURL = null;
-            synthesizedDataURL = null;
-            uploadBox.classList.remove('has-photo');
-            uploadBox.style.display = '';
-            bigPlus.style.display = '';
-            photoPreview.style.backgroundImage = '';
-            startBtnRow.classList.add('hidden');
-            resultArea.classList.remove('visible');
-            btnStart.disabled = false;
-            isSynthesizing = false;
-        }
+                const extras = ['✦', '·', '~', '○', '✧', '◌'];
+                for (let i = 0; i < randomInt(3, 7); i++) {
+                    synthCtx.save();
+                    synthCtx.fillStyle = randomPick(morandiColors);
+                    synthCtx.font = `${randomInt(Math.round(baseFontSize*0.25), Math.round(baseFontSize*0.5))}px serif`;
+                    synthCtx.textAlign = 'center';
+                    synthCtx.textBaseline = 'middle';
+                    synthCtx.globalAlpha = 0.5;
+                    synthCtx.fillText(randomPick(extras), randomFloat(canvasW*0.05, canvasW*0.95), randomFloat(canvasH*0.05, canvasH*0.95));
+                    synthCtx.restore();
+                }
 
-        function showStartButton() {
-            startBtnRow.classList.remove('hidden');
-            resultArea.classList.remove('visible');
-        }
-
-        function showResult() {
-            startBtnRow.classList.add('hidden');
-            uploadBox.style.display = 'none';
-            resultArea.classList.add('visible');
-        }
-
-        function handlePhotoUpload(file) {
-            if (!file || !file.type.startsWith('image/')) return;
-            const reader = new FileReader();
-            reader.onload = e => {
-                userPhotoDataURL = e.target.result;
-                photoPreview.style.backgroundImage = `url(${userPhotoDataURL})`;
-                uploadBox.classList.add('has-photo');
-                bigPlus.style.display = 'none';
-                showStartButton();
-            };
-            reader.readAsDataURL(file);
-        }
-
-        photoInput.addEventListener('change', e => {
-            if (e.target.files[0]) handlePhotoUpload(e.target.files[0]);
-            photoInput.value = '';
-        });
-
-        uploadBox.addEventListener('click', () => {
-            if (!isSynthesizing && !resultArea.classList.contains('visible')) photoInput.click();
-        });
-        uploadBox.addEventListener('dragover', e => e.preventDefault());
-        uploadBox.addEventListener('drop', e => {
-            e.preventDefault();
-            if (!isSynthesizing && !resultArea.classList.contains('visible') && e.dataTransfer.files[0]) {
-                handlePhotoUpload(e.dataTransfer.files[0]);
+                synthesizedDataURL = synthCanvas.toDataURL('image/png');
+                return synthesizedDataURL;
             }
-        });
 
-        btnStart.addEventListener('click', async () => {
-            if (isSynthesizing || !userPhotoDataURL) return;
-            isSynthesizing = true;
-            btnStart.disabled = true;
-            loadingOverlay.classList.add('active');
-            cowImg.style.display = 'block';
-            cowFallback.style.display = 'none';
+            // ==================== 进度条与 UI ====================
+            function animateProgress(duration = 2000) {
+                return new Promise(resolve => {
+                    const start = performance.now();
+                    progressFill.style.width = '0%';
+                    progressText.textContent = '0%';
+                    function update() {
+                        const elapsed = performance.now() - start;
+                        const frac = Math.min(elapsed / duration, 1);
+                        const percent = Math.round((1 - Math.pow(1 - frac, 3)) * 100);
+                        progressFill.style.width = percent + '%';
+                        progressText.textContent = percent + '%';
+                        if (frac < 1) requestAnimationFrame(update);
+                        else resolve();
+                    }
+                    requestAnimationFrame(update);
+                });
+            }
 
-            const progress = animateProgress(2000);
-            const synthesis = performSynthesis();
-            let synthDone = false, progDone = false;
-            synthesis.then(() => { synthDone = true; check(); }).catch(err => {
-                console.error(err);
-                synthDone = true;
+            function resetToInitial() {
+                userPhotoDataURL = null;
                 synthesizedDataURL = null;
-                check();
+                uploadBox.classList.remove('has-photo');
+                uploadBox.style.display = '';
+                bigPlus.style.display = '';
+                photoPreview.style.backgroundImage = '';
+                startBtnRow.classList.add('hidden');
+                resultArea.classList.remove('visible');
+                btnStart.disabled = false;
+                isSynthesizing = false;
+            }
+
+            function showStartButton() {
+                startBtnRow.classList.remove('hidden');
+                resultArea.classList.remove('visible');
+            }
+
+            function showResult() {
+                startBtnRow.classList.add('hidden');
+                uploadBox.style.display = 'none';
+                resultArea.classList.add('visible');
+            }
+
+            function handlePhotoUpload(file) {
+                if (!file || !file.type.startsWith('image/')) return;
+                const reader = new FileReader();
+                reader.onload = e => {
+                    userPhotoDataURL = e.target.result;
+                    photoPreview.style.backgroundImage = `url(${userPhotoDataURL})`;
+                    uploadBox.classList.add('has-photo');
+                    bigPlus.style.display = 'none';
+                    showStartButton();
+                };
+                reader.readAsDataURL(file);
+            }
+
+            photoInput.addEventListener('change', e => {
+                if (e.target.files[0]) handlePhotoUpload(e.target.files[0]);
+                photoInput.value = '';
             });
-            progress.then(() => { progDone = true; check(); });
 
-            function check() {
-                if (synthDone && progDone) {
-                    setTimeout(() => {
-                        loadingOverlay.classList.remove('active');
-                        if (synthesizedDataURL) {
-                            resultImage.src = synthesizedDataURL;
-                            showResult();
-                        } else {
-                            alert('合成失败，请重试。');
-                            resetToInitial();
-                        }
-                        btnStart.disabled = false;
-                        isSynthesizing = false;
-                    }, 300);
+            uploadBox.addEventListener('click', () => {
+                if (!isSynthesizing && !resultArea.classList.contains('visible')) photoInput.click();
+            });
+            uploadBox.addEventListener('dragover', e => e.preventDefault());
+            uploadBox.addEventListener('drop', e => {
+                e.preventDefault();
+                if (!isSynthesizing && !resultArea.classList.contains('visible') && e.dataTransfer.files[0]) {
+                    handlePhotoUpload(e.dataTransfer.files[0]);
                 }
-            }
-        });
+            });
 
-        btnRetry.addEventListener('click', resetToInitial);
+            btnStart.addEventListener('click', async () => {
+                if (isSynthesizing || !userPhotoDataURL) return;
+                isSynthesizing = true;
+                btnStart.disabled = true;
+                loadingOverlay.classList.add('active');
+                cowImg.style.display = 'block';
+                cowFallback.style.display = 'none';
 
-        btnSave.addEventListener('click', () => {
-            if (!synthesizedDataURL) return;
-            const a = document.createElement('a');
-            a.download = 'my_art_photo.png';
-            a.href = synthesizedDataURL;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-        });
+                const progress = animateProgress(2000);
+                const synthesis = performSynthesis();
+                let synthDone = false, progDone = false;
+                synthesis.then(() => { synthDone = true; check(); }).catch(err => {
+                    console.error(err);
+                    synthDone = true;
+                    synthesizedDataURL = null;
+                    check();
+                });
+                progress.then(() => { progDone = true; check(); });
 
-        document.addEventListener('keydown', e => {
-            if (e.key === 'Enter' && !isSynthesizing && userPhotoDataURL && !btnStart.disabled) {
-                e.preventDefault();
-                btnStart.click();
-            }
-            if ((e.key === 's' || e.key === 'S') && e.ctrlKey && synthesizedDataURL && resultArea.classList.contains('visible')) {
-                e.preventDefault();
-                btnSave.click();
-            }
-        });
+                function check() {
+                    if (synthDone && progDone) {
+                        setTimeout(() => {
+                            loadingOverlay.classList.remove('active');
+                            if (synthesizedDataURL) {
+                                resultImage.src = synthesizedDataURL;
+                                showResult();
+                            } else {
+                                alert('合成失败，请重试。');
+                                resetToInitial();
+                            }
+                            btnStart.disabled = false;
+                            isSynthesizing = false;
+                        }, 300);
+                    }
+                }
+            });
 
-        resetToInitial();
+            btnRetry.addEventListener('click', resetToInitial);
+
+            btnSave.addEventListener('click', () => {
+                if (!synthesizedDataURL) return;
+                const a = document.createElement('a');
+                a.download = 'my_art_photo.png';
+                a.href = synthesizedDataURL;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+            });
+
+            document.addEventListener('keydown', e => {
+                if (e.key === 'Enter' && !isSynthesizing && userPhotoDataURL && !btnStart.disabled) {
+                    e.preventDefault();
+                    btnStart.click();
+                }
+                if ((e.key === 's' || e.key === 'S') && e.ctrlKey && synthesizedDataURL && resultArea.classList.contains('visible')) {
+                    e.preventDefault();
+                    btnSave.click();
+                }
+            });
+
+            resetToInitial();
+        })();
     </script>
 </body>
 </html>
